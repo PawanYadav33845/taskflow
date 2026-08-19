@@ -30,18 +30,6 @@
 
 ---
 
-## 📸 Screenshots
-
-| Light Mode Dashboard | Dark Mode Dashboard |
-| :---: | :---: |
-| ![Light Mode](https://github.com/user-attachments/assets/9ec91fa5-233b-4d2d-b7ea-4d5fce51114d) | ![Dark Mode](https://github.com/user-attachments/assets/2b1f01ba-e1ba-41d0-8e88-1458fec78a0d) |
-
-| Task Filtering & Categories | Overdue Alerts & Edit Mode |
-| :---: | :---: |
-| ![Filtering](https://github.com/user-attachments/assets/c686badd-f46c-454b-8b2d-3669a93e72a9) | ![Overdue Alerts](https://github.com/user-attachments/assets/ab637019-4d0f-49ad-a700-e1378c285dd9) |
-
----
-
 ## 🌐 GitHub Pages Hosting Verification
 
 This repository is fully configured for deployment on **GitHub Pages**:
@@ -90,6 +78,10 @@ In the project directory, you can run:
 
 ```
 taskflow/
+├── .github/
+│   └── workflows/
+│       ├── deploy.yml     # Automated GitHub Pages Deployment Workflow
+│       └── ci.yml         # CI Build & Test Workflow
 ├── public/
 │   ├── index.html         # Main HTML template (Tailwind CDN & Google Fonts)
 │   ├── favicon.ico
