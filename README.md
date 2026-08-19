@@ -10,7 +10,7 @@
 
 **TaskFlow** is a modern, high-performance, and feature-rich task management application built with **React**, **IndexedDB**, and styled with a unique **Vibrant Mesh Gradient & Glassmorphism Aura** design system.
 
-[Live Demo]([https://pawanyadav33845.github.io/taskflow/]) • [Report Bug](https://github.com/PawanYadav33845/taskflow/issues) • [Request Feature](https://github.com/PawanYadav33845/taskflow/issues)
+[Live Demo](https://pawanyadav33845.github.io/taskflow/) • [Report Bug](https://github.com/PawanYadav33845/taskflow/issues) • [Request Feature](https://github.com/PawanYadav33845/taskflow/issues)
 
 </div>
 
@@ -52,7 +52,7 @@ This repository is configured with **GitHub Actions** workflows for continuous i
 - **Deployment Workflow**: [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)
 - **CI Build & Test Pipeline**: [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
 - **Trigger**: Automatically runs on every `push` to the `main` branch or manual trigger via `workflow_dispatch`.
-- **Live Site**: [`(https://pawanyadav33845.github.io/taskflow/)`]([https://pawanyadav33845.github.io/taskflow/])
+- **Live Site**: [`(https://pawanyadav33845.github.io/taskflow/)`](https://pawanyadav33845.github.io/taskflow/)
 
 ---
 
