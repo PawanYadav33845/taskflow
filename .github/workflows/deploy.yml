@@ -37,13 +37,15 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Run Tests
-        run: npm test -- --watchAll=false
+      - name: Run Unit Tests
+        run: npm test
         env:
           CI: true
 
       - name: Build Production Web App
         run: npm run build
+        env:
+          CI: true
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5

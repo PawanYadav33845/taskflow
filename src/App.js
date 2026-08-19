@@ -1,4 +1,16 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import {
+  getSession,
+  clearSession,
+  getUserTasks,
+  addUserTask,
+  updateUserTask,
+  deleteUserTask,
+  saveUserTasks,
+  initDatabase,
+} from "./services/db";
+import AuthModal from "./components/AuthModal";
+import AdminPanel from "./components/AdminPanel";
 
 // Generate unique ID with fallback
 const generateId = () => {
@@ -43,75 +55,24 @@ const PRIORITIES = [
   { level: "high", label: "High", color: "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30" },
 ];
 
-// Initial default tasks for first-time users
-const DEFAULT_TASKS = [
-  {
-    id: generateId(),
-    text: "Complete React project feature roadmap & test suite",
-    completed: false,
-    priority: "high",
-    category: "Projects",
-    dueDate: new Date(Date.now() + 86400000).toISOString().split("T")[0],
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: generateId(),
-    text: "Attend Advanced Web Architecture lecture at 3 PM",
-    completed: false,
-    priority: "medium",
-    category: "Classes",
-    dueDate: new Date(Date.now() + 172800000).toISOString().split("T")[0],
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: generateId(),
-    text: "Practice acoustic guitar for 30 minutes",
-    completed: true,
-    priority: "low",
-    category: "Hobby",
-    dueDate: "",
-    createdAt: new Date().toISOString(),
-  },
-];
+const GUEST_DEFAULT_TASKS = [];
 
 export default function App() {
-  // Safe lazy state initialization
+  // Auth state
+  const [currentUser, setCurrentUser] = useState(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [dbReady, setDbReady] = useState(false);
+
+  // App tasks state
   const [tasks, setTasks] = useState(() => {
     try {
-      const saved = localStorage.getItem("todoTasks");
-      if (!saved) return DEFAULT_TASKS;
-      const parsed = JSON.parse(saved);
-      if (!Array.isArray(parsed)) return DEFAULT_TASKS;
-      
-      // Migrate legacy string items or tasks without IDs
-      return parsed.map((item) => {
-        if (typeof item === "string") {
-          return {
-            id: generateId(),
-            text: item,
-            completed: false,
-            priority: "medium",
-            category: "General",
-            dueDate: "",
-            createdAt: new Date().toISOString(),
-          };
-        }
-        return {
-          id: item.id || generateId(),
-          text: item.text || "",
-          completed: Boolean(item.completed),
-          priority: item.priority || "medium",
-          category: item.category || "General",
-          dueDate: item.dueDate || "",
-          createdAt: item.createdAt || new Date().toISOString(),
-        };
-      });
-    } catch (e) {
-      console.error("Error loading tasks from localStorage:", e);
-      return DEFAULT_TASKS;
+      const saved = localStorage.getItem("guestTasks");
+      return saved ? JSON.parse(saved) : GUEST_DEFAULT_TASKS;
+    } catch {
+      return GUEST_DEFAULT_TASKS;
     }
   });
-
   const [darkMode, setDarkMode] = useState(() => {
     try {
       const savedMode = localStorage.getItem("darkMode");
@@ -129,11 +90,11 @@ export default function App() {
   const [newTaskDueDate, setNewTaskDueDate] = useState("");
 
   // Filters & Sorting state
-  const [filterStatus, setFilterStatus] = useState("all"); // all | active | completed
+  const [filterStatus, setFilterStatus] = useState("all");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [selectedPriority, setSelectedPriority] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState("newest"); // newest | oldest | dueDate | priority
+  const [sortBy, setSortBy] = useState("newest");
 
   // Inline editing state
   const [editingId, setEditingId] = useState(null);
@@ -143,10 +104,57 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const fileInputRef = useRef(null);
 
-  const showToast = (message, type = "info") => {
+  const showToast = useCallback((message, type = "info") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
-  };
+  }, []);
+
+  // Initialize IndexedDB & restore user session
+  useEffect(() => {
+    async function init() {
+      try {
+        await initDatabase();
+        setDbReady(true);
+        const sessionUser = await getSession();
+        if (sessionUser) {
+          setCurrentUser(sessionUser);
+        }
+      } catch (err) {
+        console.error("IndexedDB initialization error:", err);
+      }
+    }
+    init();
+  }, []);
+
+  // Load tasks for active user or Guest
+  const loadUserTasks = useCallback(async (user) => {
+    if (user && user.id) {
+      try {
+        const dbTasks = await getUserTasks(user.id);
+        setTasks(dbTasks);
+      } catch (err) {
+        console.error("Error loading user tasks from DB:", err);
+      }
+    } else {
+      // Guest mode fallback
+      try {
+        const saved = localStorage.getItem("guestTasks");
+        if (saved) {
+          setTasks(JSON.parse(saved));
+        } else {
+          setTasks(GUEST_DEFAULT_TASKS);
+        }
+      } catch {
+        setTasks(GUEST_DEFAULT_TASKS);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (dbReady) {
+      loadUserTasks(currentUser);
+    }
+  }, [currentUser, dbReady, loadUserTasks]);
 
   // Sync dark mode class with HTML element
   useEffect(() => {
@@ -162,17 +170,30 @@ export default function App() {
     }
   }, [darkMode]);
 
-  // Sync tasks to localStorage
+  // Save guest tasks to localStorage
   useEffect(() => {
-    try {
-      localStorage.setItem("todoTasks", JSON.stringify(tasks));
-    } catch (e) {
-      console.error("Failed to save todoTasks:", e);
+    if (!currentUser) {
+      try {
+        localStorage.setItem("guestTasks", JSON.stringify(tasks));
+      } catch (e) {
+        console.error("Failed to save guest tasks:", e);
+      }
     }
-  }, [tasks]);
+  }, [tasks, currentUser]);
 
-  // Add task handler
-  const handleAddTask = (e) => {
+  // Auth Handlers
+  const handleLoginSuccess = (user) => {
+    setCurrentUser(user);
+  };
+
+  const handleLogout = async () => {
+    await clearSession();
+    setCurrentUser(null);
+    showToast("Logged out successfully.", "info");
+  };
+
+  // Task CRUD Handlers
+  const handleAddTask = async (e) => {
     if (e) e.preventDefault();
     const trimmed = newTaskText.trim();
     if (!trimmed) return;
@@ -191,31 +212,52 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
 
+    if (currentUser) {
+      try {
+        await addUserTask(currentUser.id, newTask);
+      } catch (err) {
+        console.error("Failed to add task to IndexedDB:", err);
+      }
+    }
+
     setTasks([newTask, ...tasks]);
     setNewTaskText("");
     setNewTaskDueDate("");
     showToast("Task added successfully!", "success");
   };
 
-  // Toggle completion by ID
-  const toggleComplete = (id) => {
+  const toggleComplete = async (id) => {
     const task = tasks.find((t) => t.id === id);
-    const newStatus = task ? !task.completed : false;
-    setTasks(
-      tasks.map((t) =>
-        t.id === id ? { ...t, completed: newStatus } : t
-      )
-    );
+    if (!task) return;
+    const newStatus = !task.completed;
+
+    const updatedTasks = tasks.map((t) => (t.id === id ? { ...t, completed: newStatus } : t));
+    setTasks(updatedTasks);
+
+    if (currentUser) {
+      try {
+        await updateUserTask(currentUser.id, id, { completed: newStatus });
+      } catch (err) {
+        console.error("Failed to update task completion in DB:", err);
+      }
+    }
     showToast(newStatus ? "Task marked as completed!" : "Task marked as active.", "info");
   };
 
-  // Delete task by ID
-  const deleteTask = (id) => {
-    setTasks(tasks.filter((task) => task.id !== id));
+  const deleteTask = async (id) => {
+    const updatedTasks = tasks.filter((t) => t.id !== id);
+    setTasks(updatedTasks);
+
+    if (currentUser) {
+      try {
+        await deleteUserTask(currentUser.id, id);
+      } catch (err) {
+        console.error("Failed to delete task from DB:", err);
+      }
+    }
     showToast("Task deleted.", "info");
   };
 
-  // Start editing
   const startEditing = (task) => {
     setEditingId(task.id);
     setEditForm({
@@ -226,8 +268,7 @@ export default function App() {
     });
   };
 
-  // Save edit
-  const saveEdit = (id) => {
+  const saveEdit = async (id) => {
     const trimmed = editForm.text.trim();
     if (!trimmed) {
       showToast("Task text cannot be empty.", "error");
@@ -238,19 +279,24 @@ export default function App() {
       return;
     }
 
-    setTasks(
-      tasks.map((task) =>
-        task.id === id
-          ? {
-              ...task,
-              text: trimmed,
-              priority: editForm.priority,
-              category: editForm.category,
-              dueDate: editForm.dueDate,
-            }
-          : task
-      )
-    );
+    const updates = {
+      text: trimmed,
+      priority: editForm.priority,
+      category: editForm.category,
+      dueDate: editForm.dueDate,
+    };
+
+    const updatedTasks = tasks.map((t) => (t.id === id ? { ...t, ...updates } : t));
+    setTasks(updatedTasks);
+
+    if (currentUser) {
+      try {
+        await updateUserTask(currentUser.id, id, updates);
+      } catch (err) {
+        console.error("Failed to update task edit in DB:", err);
+      }
+    }
+
     setEditingId(null);
     showToast("Task updated!", "success");
   };
@@ -259,18 +305,35 @@ export default function App() {
     setEditingId(null);
   };
 
-  // Clear completed tasks
-  const clearCompleted = () => {
-    const completedCount = tasks.filter((t) => t.completed).length;
-    if (completedCount === 0) return;
-    setTasks(tasks.filter((t) => !t.completed));
-    showToast(`Cleared ${completedCount} completed task(s).`, "info");
+  const clearCompleted = async () => {
+    const completedTasks = tasks.filter((t) => t.completed);
+    if (completedTasks.length === 0) return;
+
+    const remainingTasks = tasks.filter((t) => !t.completed);
+    setTasks(remainingTasks);
+
+    if (currentUser) {
+      try {
+        await saveUserTasks(currentUser.id, remainingTasks);
+      } catch (err) {
+        console.error("Failed to clear completed tasks in DB:", err);
+      }
+    }
+    showToast(`Cleared ${completedTasks.length} completed task(s).`, "info");
   };
 
-  // Mark all completed / uncompleted
-  const toggleAllCompleted = () => {
+  const toggleAllCompleted = async () => {
     const allCompleted = tasks.every((t) => t.completed);
-    setTasks(tasks.map((t) => ({ ...t, completed: !allCompleted })));
+    const updatedTasks = tasks.map((t) => ({ ...t, completed: !allCompleted }));
+    setTasks(updatedTasks);
+
+    if (currentUser) {
+      try {
+        await saveUserTasks(currentUser.id, updatedTasks);
+      } catch (err) {
+        console.error("Failed to toggle all completed tasks in DB:", err);
+      }
+    }
     showToast(
       allCompleted ? "Marked all tasks as active." : "Marked all tasks as completed!",
       "success"
@@ -282,7 +345,7 @@ export default function App() {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(tasks, null, 2));
     const downloadAnchor = document.createElement("a");
     downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `taskflow_backup_${new Date().toISOString().split("T")[0]}.json`);
+    downloadAnchor.setAttribute("download", `taskflow_${currentUser ? currentUser.loginId : "guest"}_backup.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
@@ -299,7 +362,7 @@ export default function App() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const imported = JSON.parse(event.target.result);
         if (!Array.isArray(imported)) {
@@ -315,30 +378,30 @@ export default function App() {
           dueDate: item.dueDate || "",
           createdAt: item.createdAt || new Date().toISOString(),
         }));
+
         setTasks(validated);
+
+        if (currentUser) {
+          await saveUserTasks(currentUser.id, validated);
+        }
+
         showToast(`Successfully imported ${validated.length} task(s)!`, "success");
       } catch (err) {
         showToast("Error parsing JSON file.", "error");
       }
     };
     reader.readAsText(file);
-    e.target.value = ""; // reset input
+    e.target.value = "";
   };
 
   // Filter & Sort Logic
   const filteredTasks = tasks
     .filter((task) => {
-      // Status filter
       if (filterStatus === "active" && task.completed) return false;
       if (filterStatus === "completed" && !task.completed) return false;
-
-      // Category filter
       if (selectedCategory !== "All" && task.category !== selectedCategory) return false;
-
-      // Priority filter
       if (selectedPriority !== "all" && task.priority !== selectedPriority) return false;
 
-      // Search query
       if (searchQuery.trim() !== "") {
         const query = searchQuery.toLowerCase();
         return (
@@ -363,7 +426,7 @@ export default function App() {
       return 0;
     });
 
-  // Calculate statistics
+  // Stats calculation
   const totalCount = tasks.length;
   const completedCount = tasks.filter((t) => t.completed).length;
   const activeCount = totalCount - completedCount;
@@ -398,6 +461,25 @@ export default function App() {
         </div>
       )}
 
+      {/* Auth & Admin Modals */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onLoginSuccess={handleLoginSuccess}
+        onGuestContinue={() => {
+          setCurrentUser(null);
+          showToast("Continuing as Guest. Data is stored locally.", "info");
+        }}
+        showToast={showToast}
+      />
+
+      <AdminPanel
+        isOpen={showAdminPanel}
+        onClose={() => setShowAdminPanel(false)}
+        currentUser={currentUser}
+        showToast={showToast}
+      />
+
       <div className="max-w-3xl mx-auto space-y-6">
         {/* Header Bar */}
         <header className="glass-card border border-purple-200/60 dark:border-slate-800/80 shadow-xl shadow-purple-500/5 dark:shadow-purple-950/20 rounded-3xl p-6 transition-all">
@@ -420,7 +502,58 @@ export default function App() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            {/* Header Right Action Bar */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* User Identity / Auth Profile Button */}
+              {currentUser ? (
+                <div className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-2xl bg-purple-500/10 dark:bg-slate-800/80 border border-purple-200/60 dark:border-slate-700">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-white">
+                    <span className="w-7 h-7 rounded-xl bg-gradient-to-tr from-purple-600 to-cyan-500 text-white flex items-center justify-center font-extrabold text-xs">
+                      {currentUser.loginId[0].toUpperCase()}
+                    </span>
+                    <span>{currentUser.loginId}</span>
+                    <span
+                      className={`px-1.5 py-0.5 text-[9px] font-black uppercase rounded ${
+                        currentUser.role === "admin"
+                          ? "bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40"
+                          : "bg-purple-500/20 text-purple-700 dark:text-cyan-300"
+                      }`}
+                    >
+                      {currentUser.role}
+                    </span>
+                  </div>
+
+                  {currentUser.role === "admin" && (
+                    <button
+                      onClick={() => setShowAdminPanel(true)}
+                      title="Open System Admin Panel"
+                      className="px-2.5 py-1 text-xs font-bold bg-gradient-to-r from-amber-500 to-rose-500 text-white rounded-xl shadow-md hover:brightness-110 transition-all"
+                    >
+                      👑 Admin
+                    </button>
+                  )}
+
+                  <button
+                    onClick={handleLogout}
+                    title="Log out of account"
+                    className="px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-100/50 dark:hover:bg-rose-950/40 rounded-xl transition-colors"
+                  >
+                    Logout
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowAuthModal(true)}
+                  className="px-4 py-2 bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white font-bold text-xs rounded-2xl shadow-md shadow-purple-500/20 active:scale-95 transition-all flex items-center gap-1.5"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+                  </svg>
+                  <span>Sign In / Register</span>
+                </button>
+              )}
+
+              {/* Dark Mode Toggle */}
               <button
                 onClick={() => setDarkMode(!darkMode)}
                 aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
@@ -438,6 +571,7 @@ export default function App() {
                 )}
               </button>
 
+              {/* JSON Backup Export */}
               <button
                 onClick={handleExport}
                 title="Backup tasks to JSON"
@@ -449,6 +583,7 @@ export default function App() {
                 </svg>
               </button>
 
+              {/* JSON Restore Import */}
               <button
                 onClick={handleImportClick}
                 title="Restore tasks from JSON"
